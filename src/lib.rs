@@ -1,30 +1,41 @@
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::thread;
-
-/// Serves `body` over HTTP to every incoming TCP connection on the given
-/// address; defaults to `127.0.0.1:8080` if `None` is given.
+/// Serves `body` over HTTP to every incoming TCP connection.
+/// # Arguments
 ///
-/// The program is intentionally minimal:
+/// * `addr` - An optional string representing the address (e.g., a URL or socket address)
+///            to which the data is sent or from which data is processed. If `None`,
+///            `127.0.0.1:3030` is used.
+/// * `body` - A `Vec<u8>` representing the raw binary content or payload.
+/// * `content_type` - An optional string representing the MIME type of the body (e.g.,
+///                    `"application/json"` or `"text/plain"`). If `None` is specified,
+///                    `text/html; charset=utf-8` is used.
+///
+/// # Notes
 /// - Spawns a new OS thread per connection.
 /// - Ignores the HTTP request bytes and always responds `200 OK`.
 /// - Sends `Content-Type: text/plain; charset=utf-8`.
 ///
 /// # Errors
-/// Returns any I/O errors from binding the listener, or
-/// accepting connections.
-pub fn run(addr: Option<String>, body: Vec<u8>) -> std::io::Result<()> {
-    let addr = addr.unwrap_or("127.0.0.1:8080".to_string());
-    let listener = TcpListener::bind(&addr)?;
+/// Returns any I/O errors from binding the listener, or accepting connections.
+pub fn run(
+    addr: Option<String>,
+    body: Vec<u8>,
+    content_type: Option<String>,
+) -> std::io::Result<()> {
+    let addr = addr.unwrap_or("127.0.0.1:3030".to_string());
+    let listener = std::net::TcpListener::bind(&addr)?;
     println!("Listening on http://{}", addr);
 
     let body = std::sync::Arc::new(body);
+    let content_type =
+        std::sync::Arc::new(content_type.unwrap_or("text/html; charset=utf-8".into()));
     for stream in listener.incoming() {
         match stream {
             Ok(tcp_stream) => {
                 let body = body.clone();
-                thread::spawn(move || {
-                    let _ = handle_client(tcp_stream, body);
+                let content_type = content_type.clone();
+
+                std::thread::spawn(move || {
+                    let _ = handle_client(tcp_stream, body, content_type);
                 });
             }
             Err(err) => eprintln!("accept error: {err}"),
@@ -48,26 +59,28 @@ pub fn run(addr: Option<String>, body: Vec<u8>) -> std::io::Result<()> {
 /// # Errors
 /// Propagates I/O errors from reading or writing on the stream.
 pub(crate) fn handle_client(
-    mut stream: TcpStream,
+    mut stream: std::net::TcpStream,
     body: std::sync::Arc<Vec<u8>>,
+    content_type: std::sync::Arc<String>,
 ) -> std::io::Result<()> {
     // Ignore the request
     let mut _buf = [0u8; 2048];
-    let _ = stream.read(&mut _buf);
+    let _ = std::io::Read::read(&mut stream, &mut _buf);
 
     // Same response regardless
     let headers = format!(
         "HTTP/1.1 200 OK\r\n\
          Content-Length: {}\r\n\
-         Content-Type: text/plain; charset=utf-8\r\n\
+         Content-Type: {}\r\n\
          Connection: close\r\n\
          \r\n",
-        body.len()
+        body.len(),
+        content_type
     );
 
-    stream.write_all(headers.as_bytes())?;
-    stream.write_all(&body)?;
-    stream.flush()?;
+    std::io::Write::write_all(&mut stream, headers.as_bytes())?;
+    std::io::Write::write_all(&mut stream, &body)?;
+    std::io::Write::flush(&mut stream)?;
 
     Ok(())
 }

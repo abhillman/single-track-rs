@@ -15,7 +15,7 @@ Example:
 
 ```rust
 fn main() -> std::io::Result<()> {
-    stdin_http_rs::run(None, include_bytes!("../Cargo.toml").to_vec())
+    stdin_http_rs::run(None, include_bytes!("../Cargo.toml", Some("text/html".into())).to_vec())
 }
 ```
 
